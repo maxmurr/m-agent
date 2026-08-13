@@ -18,14 +18,6 @@ const workspacePath = "workspace";
 const agentModel = "openai/gpt-5.6-terra";
 const memoryModel = "openai/gpt-5-mini";
 
-const contextCompactionMessageTokens = 150_000;
-const contextCompactionRecentTokens = 50_000;
-const contextCompactionBlockingTokens = 190_000;
-
-const contextCompactionObserverInstruction = `Checkpoint long-running work. Preserve user goals and constraints, progress, blockers, decisions, next action, and exact paths, identifiers, commands, results, errors, IDs, and URLs. Never infer completion. Set current-task and suggested-response to resume the next action.`;
-
-const contextCompactionReflectionInstruction = `Condense checkpoints without losing active goals, constraints, unfinished work, decisions, next actions, or exact technical identifiers. Remove only completed or superseded details.`;
-
 const workspace = new Workspace({
   id: "agent-workspace",
   name: "Agent Workspace",
@@ -101,25 +93,6 @@ For local file changes, summarize what changed and end with a plain-text URL usi
       generateTitle: true,
       observationalMemory: {
         model: memoryModel,
-        scope: "thread",
-        retrieval: {
-          scope: "thread",
-          instructions:
-            "Recall newest relevant messages first. Use history for user intent and workspace files for current file state.",
-        },
-        observation: {
-          messageTokens: contextCompactionMessageTokens,
-          bufferTokens: 0.2,
-          bufferActivation: contextCompactionRecentTokens,
-          blockAfter: contextCompactionBlockingTokens,
-          instruction: contextCompactionObserverInstruction,
-        },
-        reflection: {
-          observationTokens: 40_000,
-          bufferActivation: 0.5,
-          blockAfter: 1.2,
-          instruction: contextCompactionReflectionInstruction,
-        },
       },
     },
   }),
