@@ -19,6 +19,7 @@
     "check:slack": "node --env-file-if-exists=.env scripts/check-slack-setup.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.30",
     "@chat-adapter/slack": "^4.37.0",
     "@mastra/core": "1.57.0",
     "@mastra/docker": "0.5.0",

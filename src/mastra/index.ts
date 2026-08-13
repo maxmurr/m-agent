@@ -1,4 +1,5 @@
 import { Mastra } from "@mastra/core/mastra";
+import { askUserTool, webFetchTool } from "@mastra/core/tools";
 import { LibSQLStore } from "@mastra/libsql";
 import { DuckDBStore } from "@mastra/duckdb";
 import { MastraCompositeStore } from "@mastra/core/storage";
@@ -10,10 +11,20 @@ import {
 } from "@mastra/observability";
 import { durableAgent, slackChannels, slackChannelTools } from "./agents/agent";
 import { startScheduleTool, stopScheduleTool } from "./tools/schedule";
+import { webSearchTool } from "./tools/web-search";
+import { whoamiTool } from "./tools/whoami";
 
 export const mastra = new Mastra({
   agents: { durableAgent },
-  tools: { ...slackChannelTools, startScheduleTool, stopScheduleTool },
+  tools: {
+    ...slackChannelTools,
+    ask_user: askUserTool,
+    startScheduleTool,
+    stopScheduleTool,
+    web_fetch: webFetchTool,
+    web_search: webSearchTool,
+    whoami: whoamiTool,
+  },
   storage: new MastraCompositeStore({
     id: "composite-storage",
     default: new LibSQLStore({

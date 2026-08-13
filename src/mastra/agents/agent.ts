@@ -1,13 +1,15 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { Agent } from "@mastra/core/agent";
 import { AgentChannels } from "@mastra/core/channels";
 import { TaskSignalProvider } from "@mastra/core/signals";
-import { askUserTool, webFetchTool, webSearchTool } from "@mastra/core/tools";
+import { askUserTool, webFetchTool } from "@mastra/core/tools";
 import { LocalFilesystem, WORKSPACE_TOOLS, Workspace } from "@mastra/core/workspace";
 import { DockerSandbox } from "@mastra/docker";
 import { Memory } from "@mastra/memory";
 import { startScheduleTool, stopScheduleTool } from "../tools/schedule";
+import { webSearchTool } from "../tools/web-search";
 import { createDurableAgent } from "@mastra/core/agent/durable";
 import { createSlackAdapter } from "@chat-adapter/slack";
 import { whoamiTool } from "../tools/whoami";
@@ -19,9 +21,54 @@ import {
 
 const HOST_WORKSPACE_PATH = resolve("workspace");
 const DOCKER_WORKSPACE_PATH = "/workspace";
-const AGENT_MODEL = "openai/gpt-5.6-terra";
-const MEMORY_MODEL = "openai/gpt-5-mini";
-const GUARDRAIL_MODEL = "openai/gpt-5-nano";
+function requireOpenAICompatibleSetting(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`OpenAI-compatible provider setting missing: ${name}`);
+  }
+  return value;
+}
+
+const OPENAI_COMPATIBLE_BASE_URL = requireOpenAICompatibleSetting("OPENAI_COMPATIBLE_BASE_URL");
+const OPENAI_COMPATIBLE_AGENT_MODEL_ID = requireOpenAICompatibleSetting(
+  "OPENAI_COMPATIBLE_AGENT_MODEL_ID",
+);
+const OPENAI_COMPATIBLE_MEMORY_MODEL_ID = requireOpenAICompatibleSetting(
+  "OPENAI_COMPATIBLE_MEMORY_MODEL_ID",
+);
+const OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID = requireOpenAICompatibleSetting(
+  "OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID",
+);
+const configuredRequestPriority = process.env.OPENAI_COMPATIBLE_REQUEST_PRIORITY?.trim();
+const OPENAI_COMPATIBLE_REQUEST_PRIORITY = configuredRequestPriority
+  ? Number(configuredRequestPriority)
+  : undefined;
+
+if (
+  OPENAI_COMPATIBLE_REQUEST_PRIORITY !== undefined &&
+  !Number.isInteger(OPENAI_COMPATIBLE_REQUEST_PRIORITY)
+) {
+  throw new Error("OPENAI_COMPATIBLE_REQUEST_PRIORITY must be an integer or empty");
+}
+
+const openAICompatibleProvider = createOpenAICompatible({
+  name: "openai-compatible",
+  apiKey: process.env.OPENAI_COMPATIBLE_API_KEY,
+  baseURL: OPENAI_COMPATIBLE_BASE_URL,
+  includeUsage: true,
+  supportsStructuredOutputs: true,
+  transformRequestBody:
+    OPENAI_COMPATIBLE_REQUEST_PRIORITY === undefined
+      ? undefined
+      : (requestBody) => ({
+          ...requestBody,
+          priority: OPENAI_COMPATIBLE_REQUEST_PRIORITY,
+        }),
+});
+
+const AGENT_MODEL = openAICompatibleProvider.chatModel(OPENAI_COMPATIBLE_AGENT_MODEL_ID);
+const MEMORY_MODEL = openAICompatibleProvider.chatModel(OPENAI_COMPATIBLE_MEMORY_MODEL_ID);
+const GUARDRAIL_MODEL = openAICompatibleProvider.chatModel(OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID);
 
 const workspace = new Workspace({
   id: "agent-workspace",

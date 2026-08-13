@@ -18,11 +18,18 @@ This starter provides you with a general-purpose Mastra agent that can research 
 
 ## Get started
 
-Set your OpenAI API key in `.env`:
+Configure your OpenAI-compatible provider entirely in `.env`. Example for the current GPUStack deployment:
 
 ```dotenv
-OPENAI_API_KEY=sk-...
+OPENAI_COMPATIBLE_BASE_URL=https://gpustack.de.kafra.arkcube.com/v1
+OPENAI_COMPATIBLE_API_KEY=your-provider-api-key
+OPENAI_COMPATIBLE_AGENT_MODEL_ID=Qwen--Qwen3.6-35B-A3B-FP8
+OPENAI_COMPATIBLE_MEMORY_MODEL_ID=Qwen--Qwen3.6-35B-A3B-FP8
+OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID=gpt-oss-safeguard-20b
+OPENAI_COMPATIBLE_REQUEST_PRIORITY=1
 ```
+
+Change base URL, API key, and model IDs to switch providers without editing source. Leave `OPENAI_COMPATIBLE_REQUEST_PRIORITY` empty when the provider doesn't support request priority.
 
 Start Docker Engine, then run:
 
