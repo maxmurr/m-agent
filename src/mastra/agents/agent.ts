@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { Agent } from "@mastra/core/agent";
+import type { OpenAICompatibleConfig } from "@mastra/core/llm";
 import { AgentChannels } from "@mastra/core/channels";
 import { TaskSignalProvider } from "@mastra/core/signals";
 import { askUserTool, webFetchTool } from "@mastra/core/tools";
@@ -51,24 +51,27 @@ if (
   throw new Error("OPENAI_COMPATIBLE_REQUEST_PRIORITY must be an integer or empty");
 }
 
-const openAICompatibleProvider = createOpenAICompatible({
-  name: "openai-compatible",
-  apiKey: process.env.OPENAI_COMPATIBLE_API_KEY,
-  baseURL: OPENAI_COMPATIBLE_BASE_URL,
-  includeUsage: true,
-  supportsStructuredOutputs: true,
-  transformRequestBody:
-    OPENAI_COMPATIBLE_REQUEST_PRIORITY === undefined
-      ? undefined
-      : (requestBody) => ({
-          ...requestBody,
+const OPENAI_COMPATIBLE_PROVIDER_OPTIONS =
+  OPENAI_COMPATIBLE_REQUEST_PRIORITY === undefined
+    ? undefined
+    : {
+        openaiCompatible: {
           priority: OPENAI_COMPATIBLE_REQUEST_PRIORITY,
-        }),
-});
+        },
+      };
 
-const AGENT_MODEL = openAICompatibleProvider.chatModel(OPENAI_COMPATIBLE_AGENT_MODEL_ID);
-const MEMORY_MODEL = openAICompatibleProvider.chatModel(OPENAI_COMPATIBLE_MEMORY_MODEL_ID);
-const GUARDRAIL_MODEL = openAICompatibleProvider.chatModel(OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID);
+function createMastraOpenAICompatibleModel(modelId: string): OpenAICompatibleConfig {
+  return {
+    providerId: "openai-compatible",
+    modelId,
+    url: OPENAI_COMPATIBLE_BASE_URL,
+    apiKey: process.env.OPENAI_COMPATIBLE_API_KEY,
+  };
+}
+
+const AGENT_MODEL = createMastraOpenAICompatibleModel(OPENAI_COMPATIBLE_AGENT_MODEL_ID);
+const MEMORY_MODEL = createMastraOpenAICompatibleModel(OPENAI_COMPATIBLE_MEMORY_MODEL_ID);
+const GUARDRAIL_MODEL = createMastraOpenAICompatibleModel(OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID);
 
 const workspace = new Workspace({
   id: "agent-workspace",
@@ -132,6 +135,18 @@ export const slackChannels = new AgentChannels({
 
 export const slackChannelTools = slackChannels.getTools();
 
+const agentTools = {
+  ...slackChannelTools,
+  [askUserTool.id]: askUserTool,
+  [startScheduleTool.id]: startScheduleTool,
+  [stopScheduleTool.id]: stopScheduleTool,
+  [webFetchTool.id]: webFetchTool,
+  [webSearchTool.id]: webSearchTool,
+  [whoamiTool.id]: whoamiTool,
+};
+
+const agentToolDescriptionList = formatAgentToolDescriptionList(agentTools);
+
 const agent = new Agent({
   id: "agent",
   name: "Agent",
@@ -140,14 +155,7 @@ const agent = new Agent({
   instructions: `You are a concise general-purpose assistant. Complete the user's task using available tools.
 
 Available tools:
-- add_reaction: Add an emoji reaction to a channel message.
-- ask_user: Ask the user a question.
-- remove_reaction: Remove an emoji reaction from a channel message.
-- start_schedule: Start a schedule.
-- stop_schedule: Stop a schedule.
-- web_fetch: Fetch a URL.
-- web_search: Search the web.
-- whoami: Get the current user.
+${agentToolDescriptionList}
 
 Guidelines:
 - Never claim unverified actions, sources, or results.
@@ -167,25 +175,24 @@ For local file changes, summarize what changed and end with a plain-text URL usi
   defaultOptions: {
     maxSteps: 100,
     autoResumeSuspendedTools: true,
+    providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
   },
   memory: new Memory({
     options: {
       generateTitle: true,
       observationalMemory: {
         model: MEMORY_MODEL,
+        observation: {
+          providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
+        },
+        reflection: {
+          providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
+        },
       },
     },
   }),
   workspace,
-  tools: {
-    ...slackChannelTools,
-    ask_user: askUserTool,
-    start_schedule: startScheduleTool,
-    stop_schedule: stopScheduleTool,
-    web_fetch: webFetchTool,
-    web_search: webSearchTool,
-    whoami: whoamiTool,
-  },
+  tools: agentTools,
   signals: [new TaskSignalProvider()],
   inputProcessors: [
     new UnicodeNormalizer({
@@ -194,12 +201,14 @@ For local file changes, summarize what changed and end with a plain-text URL usi
     }),
     new PromptInjectionDetector({
       model: GUARDRAIL_MODEL,
+      providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
       threshold: 0.8,
       strategy: "rewrite",
       detectionTypes: ["injection", "jailbreak", "system-override"],
     }),
     new ModerationProcessor({
       model: GUARDRAIL_MODEL,
+      providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
       threshold: 0.7,
       strategy: "block",
       categories: ["hate", "harassment", "violence"],
@@ -209,3 +218,27 @@ For local file changes, summarize what changed and end with a plain-text URL usi
 });
 
 export const durableAgent = createDurableAgent({ agent });
+
+function formatAgentToolDescriptionList(tools: Record<string, unknown>): string {
+  return Object.entries(tools)
+    .map(([registeredToolId, tool]) => {
+      if (!hasAgentToolMetadata(tool)) {
+        throw new Error(`Agent tool metadata missing: ${registeredToolId}`);
+      }
+      return tool;
+    })
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map(({ id, description }) => `- ${id}: ${description}`)
+    .join("\n");
+}
+
+function hasAgentToolMetadata(tool: unknown): tool is { id: string; description: string } {
+  return (
+    typeof tool === "object" &&
+    tool !== null &&
+    "id" in tool &&
+    typeof tool.id === "string" &&
+    "description" in tool &&
+    typeof tool.description === "string"
+  );
+}
