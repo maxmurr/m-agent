@@ -4,6 +4,7 @@ import { z } from 'zod';
 export const startScheduleTool = createTool({
   id: 'start_schedule',
   description: 'Start a recurring schedule for the default agent.',
+  requireApproval: true,
   inputSchema: z.object({
     schedule: z.string().describe('Cron expression for when to run.'),
     prompt: z.string().describe('Prompt to run on the schedule.'),
