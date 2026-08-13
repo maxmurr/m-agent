@@ -12,6 +12,7 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
+    "test": "vitest run",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
@@ -33,7 +34,8 @@
     "mastra": "1.23.0",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=22.13.0"

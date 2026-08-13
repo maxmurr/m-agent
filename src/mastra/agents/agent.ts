@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Agent } from "@mastra/core/agent";
-import type { OpenAICompatibleConfig } from "@mastra/core/llm";
+import type { ModelRouterModelId } from "@mastra/core/llm";
 import { AgentChannels } from "@mastra/core/channels";
 import { TaskSignalProvider } from "@mastra/core/signals";
-import { askUserTool, webFetchTool } from "@mastra/core/tools";
+import { askUserTool, webFetchTool, type Tool } from "@mastra/core/tools";
 import { LocalFilesystem, WORKSPACE_TOOLS, Workspace } from "@mastra/core/workspace";
 import { DockerSandbox } from "@mastra/docker";
 import { Memory } from "@mastra/memory";
@@ -16,62 +16,15 @@ import { whoamiTool } from "../tools/whoami";
 import {
   ModerationProcessor,
   PromptInjectionDetector,
+  ToolSearchProcessor,
   UnicodeNormalizer,
 } from "@mastra/core/processors";
 
 const HOST_WORKSPACE_PATH = resolve("workspace");
 const DOCKER_WORKSPACE_PATH = "/workspace";
-function requireOpenAICompatibleSetting(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`OpenAI-compatible provider setting missing: ${name}`);
-  }
-  return value;
-}
-
-const OPENAI_COMPATIBLE_BASE_URL = requireOpenAICompatibleSetting("OPENAI_COMPATIBLE_BASE_URL");
-const OPENAI_COMPATIBLE_AGENT_MODEL_ID = requireOpenAICompatibleSetting(
-  "OPENAI_COMPATIBLE_AGENT_MODEL_ID",
-);
-const OPENAI_COMPATIBLE_MEMORY_MODEL_ID = requireOpenAICompatibleSetting(
-  "OPENAI_COMPATIBLE_MEMORY_MODEL_ID",
-);
-const OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID = requireOpenAICompatibleSetting(
-  "OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID",
-);
-const configuredRequestPriority = process.env.OPENAI_COMPATIBLE_REQUEST_PRIORITY?.trim();
-const OPENAI_COMPATIBLE_REQUEST_PRIORITY = configuredRequestPriority
-  ? Number(configuredRequestPriority)
-  : undefined;
-
-if (
-  OPENAI_COMPATIBLE_REQUEST_PRIORITY !== undefined &&
-  !Number.isInteger(OPENAI_COMPATIBLE_REQUEST_PRIORITY)
-) {
-  throw new Error("OPENAI_COMPATIBLE_REQUEST_PRIORITY must be an integer or empty");
-}
-
-const OPENAI_COMPATIBLE_PROVIDER_OPTIONS =
-  OPENAI_COMPATIBLE_REQUEST_PRIORITY === undefined
-    ? undefined
-    : {
-        openaiCompatible: {
-          priority: OPENAI_COMPATIBLE_REQUEST_PRIORITY,
-        },
-      };
-
-function createMastraOpenAICompatibleModel(modelId: string): OpenAICompatibleConfig {
-  return {
-    providerId: "openai-compatible",
-    modelId,
-    url: OPENAI_COMPATIBLE_BASE_URL,
-    apiKey: process.env.OPENAI_COMPATIBLE_API_KEY,
-  };
-}
-
-const AGENT_MODEL = createMastraOpenAICompatibleModel(OPENAI_COMPATIBLE_AGENT_MODEL_ID);
-const MEMORY_MODEL = createMastraOpenAICompatibleModel(OPENAI_COMPATIBLE_MEMORY_MODEL_ID);
-const GUARDRAIL_MODEL = createMastraOpenAICompatibleModel(OPENAI_COMPATIBLE_GUARDRAIL_MODEL_ID);
+const VERCEL_AI_GATEWAY_PRIMARY_MODEL = "vercel/alibaba/qwen3.6-27b" satisfies ModelRouterModelId;
+const VERCEL_AI_GATEWAY_GUARDRAIL_MODEL =
+  "vercel/openai/gpt-oss-safeguard-20b" satisfies ModelRouterModelId;
 
 const workspace = new Workspace({
   id: "agent-workspace",
@@ -133,11 +86,10 @@ export const slackChannels = new AgentChannels({
   },
 });
 
-export const slackChannelTools = slackChannels.getTools();
+export const slackChannelTools = slackChannels.getTools() as Record<string, Tool>;
 
-const agentTools = {
+const searchableAgentTools = {
   ...slackChannelTools,
-  [askUserTool.id]: askUserTool,
   [startScheduleTool.id]: startScheduleTool,
   [stopScheduleTool.id]: stopScheduleTool,
   [webFetchTool.id]: webFetchTool,
@@ -145,7 +97,14 @@ const agentTools = {
   [whoamiTool.id]: whoamiTool,
 };
 
-const agentToolDescriptionList = formatAgentToolDescriptionList(agentTools);
+const optionalToolSearchProcessor = new ToolSearchProcessor({
+  tools: searchableAgentTools,
+  storage: "context",
+  search: {
+    topK: 3,
+    autoLoad: true,
+  },
+});
 
 const agent = new Agent({
   id: "agent",
@@ -154,13 +113,11 @@ const agent = new Agent({
     "A general-purpose assistant that can research, manage tasks, work with files, run approved commands, and create schedules.",
   instructions: `You are a concise general-purpose assistant. Complete the user's task using available tools.
 
-Available tools:
-${agentToolDescriptionList}
-
 Guidelines:
 - Never claim unverified actions, sources, or results.
 - Read before editing. Preserve unrelated work, make the smallest coherent change, and verify it.
 - Search the web for current or uncertain facts and prefer authoritative sources.
+- Use search_tools to discover optional capabilities before assuming they are unavailable. Matches load automatically and become callable on the next turn.
 - Ask one concise question only when missing information materially changes the result; otherwise state a reasonable assumption.
 - Confirm before broadening scope. Respect approval safeguards and explain destructive actions.
 - Protect secrets and personal data.
@@ -171,28 +128,23 @@ Guidelines:
 
 For local file changes, summarize what changed and end with a plain-text URL using ${pathToFileURL(`${HOST_WORKSPACE_PATH}/`).href}; avoid Markdown links, localhost, /workspace, relative paths, and static-file servers.
 `,
-  model: AGENT_MODEL,
+  model: VERCEL_AI_GATEWAY_PRIMARY_MODEL,
   defaultOptions: {
     maxSteps: 100,
     autoResumeSuspendedTools: true,
-    providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
   },
   memory: new Memory({
     options: {
       generateTitle: true,
       observationalMemory: {
-        model: MEMORY_MODEL,
-        observation: {
-          providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
-        },
-        reflection: {
-          providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
-        },
+        model: VERCEL_AI_GATEWAY_PRIMARY_MODEL,
       },
     },
   }),
   workspace,
-  tools: agentTools,
+  tools: {
+    [askUserTool.id]: askUserTool,
+  },
   signals: [new TaskSignalProvider()],
   inputProcessors: [
     new UnicodeNormalizer({
@@ -200,45 +152,20 @@ For local file changes, summarize what changed and end with a plain-text URL usi
       collapseWhitespace: true,
     }),
     new PromptInjectionDetector({
-      model: GUARDRAIL_MODEL,
-      providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
+      model: VERCEL_AI_GATEWAY_GUARDRAIL_MODEL,
       threshold: 0.8,
       strategy: "rewrite",
       detectionTypes: ["injection", "jailbreak", "system-override"],
     }),
     new ModerationProcessor({
-      model: GUARDRAIL_MODEL,
-      providerOptions: OPENAI_COMPATIBLE_PROVIDER_OPTIONS,
+      model: VERCEL_AI_GATEWAY_GUARDRAIL_MODEL,
       threshold: 0.7,
       strategy: "block",
       categories: ["hate", "harassment", "violence"],
     }),
+    optionalToolSearchProcessor,
   ],
   channels: slackChannels,
 });
 
 export const durableAgent = createDurableAgent({ agent });
-
-function formatAgentToolDescriptionList(tools: Record<string, unknown>): string {
-  return Object.entries(tools)
-    .map(([registeredToolId, tool]) => {
-      if (!hasAgentToolMetadata(tool)) {
-        throw new Error(`Agent tool metadata missing: ${registeredToolId}`);
-      }
-      return tool;
-    })
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map(({ id, description }) => `- ${id}: ${description}`)
-    .join("\n");
-}
-
-function hasAgentToolMetadata(tool: unknown): tool is { id: string; description: string } {
-  return (
-    typeof tool === "object" &&
-    tool !== null &&
-    "id" in tool &&
-    typeof tool.id === "string" &&
-    "description" in tool &&
-    typeof tool.description === "string"
-  );
-}
