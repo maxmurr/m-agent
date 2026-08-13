@@ -2,30 +2,31 @@ import { pathToFileURL } from "node:url";
 import { Agent } from "@mastra/core/agent";
 import { TaskSignalProvider } from "@mastra/core/signals";
 import { askUserTool, webFetchTool, webSearchTool } from "@mastra/core/tools";
-import {
-  LocalFilesystem,
-  LocalSandbox,
-  WORKSPACE_TOOLS,
-  Workspace,
-} from "@mastra/core/workspace";
+import { LocalFilesystem, LocalSandbox, WORKSPACE_TOOLS, Workspace } from "@mastra/core/workspace";
 import { Memory } from "@mastra/memory";
 import { startScheduleTool, stopScheduleTool } from "../tools/schedule";
 import { createDurableAgent } from "@mastra/core/agent/durable";
 import { createSlackAdapter } from "@chat-adapter/slack";
 import { whoamiTool } from "../tools/whoami";
+import {
+  ModerationProcessor,
+  PromptInjectionDetector,
+  UnicodeNormalizer,
+} from "@mastra/core/processors";
 
-const workspacePath = "workspace";
-const agentModel = "openai/gpt-5.6-terra";
-const memoryModel = "openai/gpt-5-mini";
+const WORKSPACE_PATH = "workspace";
+const AGENT_MODEL = "openai/gpt-5.6-terra";
+const MEMORY_MODEL = "openai/gpt-5-mini";
+const GUARDRAIL_MODEL = "openai/gpt-5-nano";
 
 const workspace = new Workspace({
   id: "agent-workspace",
   name: "Agent Workspace",
   filesystem: new LocalFilesystem({
-    basePath: workspacePath,
+    basePath: WORKSPACE_PATH,
   }),
   sandbox: new LocalSandbox({
-    workingDirectory: workspacePath,
+    workingDirectory: WORKSPACE_PATH,
   }),
   tools: {
     [WORKSPACE_TOOLS.FILESYSTEM.WRITE_FILE]: {
@@ -81,9 +82,9 @@ Guidelines:
 - After history compaction, resume unfinished work and use recall for missing details.
 - Match the user's tone and keep responses concise.
 
-For local file changes, summarize what changed and end with a plain-text URL using ${pathToFileURL(`${workspacePath}/`).href}; avoid Markdown links, localhost, /workspace, relative paths, and static-file servers.
+For local file changes, summarize what changed and end with a plain-text URL using ${pathToFileURL(`${WORKSPACE_PATH}/`).href}; avoid Markdown links, localhost, /workspace, relative paths, and static-file servers.
 `,
-  model: agentModel,
+  model: AGENT_MODEL,
   defaultOptions: {
     maxSteps: 100,
     autoResumeSuspendedTools: true,
@@ -92,7 +93,7 @@ For local file changes, summarize what changed and end with a plain-text URL usi
     options: {
       generateTitle: true,
       observationalMemory: {
-        model: memoryModel,
+        model: MEMORY_MODEL,
       },
     },
   }),
@@ -106,6 +107,24 @@ For local file changes, summarize what changed and end with a plain-text URL usi
     whoami: whoamiTool,
   },
   signals: [new TaskSignalProvider()],
+  inputProcessors: [
+    new UnicodeNormalizer({
+      stripControlChars: true,
+      collapseWhitespace: true,
+    }),
+    new PromptInjectionDetector({
+      model: GUARDRAIL_MODEL,
+      threshold: 0.8,
+      strategy: "rewrite",
+      detectionTypes: ["injection", "jailbreak", "system-override"],
+    }),
+    new ModerationProcessor({
+      model: GUARDRAIL_MODEL,
+      threshold: 0.7,
+      strategy: "block",
+      categories: ["hate", "harassment", "violence"],
+    }),
+  ],
   channels: {
     adapters: {
       slack: {
@@ -113,12 +132,11 @@ For local file changes, summarize what changed and end with a plain-text URL usi
         streaming: true,
         toolDisplay: "grouped",
         typingStatus: true,
-        formatError: () =>
-          "Something went wrong while processing your request.",
+        formatError: () => "Something went wrong while processing your request.",
       },
     },
     handlers: {
-      onSubscribedMessage: async (thread, message, defaultHandler, ctx) => {
+      onSubscribedMessage: async (thread, message, defaultHandler, _ctx) => {
         if (/^aside\b/i.test(message.text)) return;
         return await defaultHandler(thread, message);
       },

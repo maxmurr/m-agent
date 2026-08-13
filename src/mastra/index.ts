@@ -1,34 +1,34 @@
-import { Mastra } from '@mastra/core/mastra';
-import { LibSQLStore } from '@mastra/libsql';
-import { DuckDBStore } from '@mastra/duckdb';
-import { MastraCompositeStore } from '@mastra/core/storage';
+import { Mastra } from "@mastra/core/mastra";
+import { LibSQLStore } from "@mastra/libsql";
+import { DuckDBStore } from "@mastra/duckdb";
+import { MastraCompositeStore } from "@mastra/core/storage";
 import {
   MastraStorageExporter,
   MastraPlatformExporter,
   Observability,
   SensitiveDataFilter,
-} from '@mastra/observability';
-import { durableAgent } from './agents/agent';
-import { startScheduleTool, stopScheduleTool } from './tools/schedule';
+} from "@mastra/observability";
+import { durableAgent } from "./agents/agent";
+import { startScheduleTool, stopScheduleTool } from "./tools/schedule";
 
 export const mastra = new Mastra({
   agents: { durableAgent },
   tools: { startScheduleTool, stopScheduleTool },
   storage: new MastraCompositeStore({
-    id: 'composite-storage',
+    id: "composite-storage",
     default: new LibSQLStore({
-      id: 'mastra-storage',
-      url: process.env.TURSO_DATABASE_URL || 'file:./mastra.db',
+      id: "mastra-storage",
+      url: process.env.TURSO_DATABASE_URL || "file:./mastra.db",
       authToken: process.env.TURSO_AUTH_TOKEN || undefined,
     }),
     domains: {
-      observability: await new DuckDBStore().getStore('observability'),
+      observability: await new DuckDBStore().getStore("observability"),
     },
   }),
   observability: new Observability({
     configs: {
       default: {
-        serviceName: 'mastra',
+        serviceName: "mastra",
         exporters: [new MastraStorageExporter(), new MastraPlatformExporter()],
         spanOutputProcessors: [new SensitiveDataFilter()],
       },
