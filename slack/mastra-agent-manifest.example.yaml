@@ -18,6 +18,7 @@ oauth_config:
       - channels:read
       - chat:write
       - files:read
+      - groups:history
       - im:history
       - im:read
       - im:write
@@ -31,7 +32,10 @@ settings:
     bot_events:
       - app_mention
       - message.channels
+      - message.groups
       - message.im
+      - reaction_added
+      - reaction_removed
   interactivity:
     is_enabled: true
     request_url: https://replace-me.example.com/api/agents/agent/channels/slack/webhook

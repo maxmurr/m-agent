@@ -1,8 +1,11 @@
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Agent } from "@mastra/core/agent";
+import { AgentChannels } from "@mastra/core/channels";
 import { TaskSignalProvider } from "@mastra/core/signals";
 import { askUserTool, webFetchTool, webSearchTool } from "@mastra/core/tools";
-import { LocalFilesystem, LocalSandbox, WORKSPACE_TOOLS, Workspace } from "@mastra/core/workspace";
+import { LocalFilesystem, WORKSPACE_TOOLS, Workspace } from "@mastra/core/workspace";
+import { DockerSandbox } from "@mastra/docker";
 import { Memory } from "@mastra/memory";
 import { startScheduleTool, stopScheduleTool } from "../tools/schedule";
 import { createDurableAgent } from "@mastra/core/agent/durable";
@@ -14,7 +17,8 @@ import {
   UnicodeNormalizer,
 } from "@mastra/core/processors";
 
-const WORKSPACE_PATH = "workspace";
+const HOST_WORKSPACE_PATH = resolve("workspace");
+const DOCKER_WORKSPACE_PATH = "/workspace";
 const AGENT_MODEL = "openai/gpt-5.6-terra";
 const MEMORY_MODEL = "openai/gpt-5-mini";
 const GUARDRAIL_MODEL = "openai/gpt-5-nano";
@@ -23,10 +27,15 @@ const workspace = new Workspace({
   id: "agent-workspace",
   name: "Agent Workspace",
   filesystem: new LocalFilesystem({
-    basePath: WORKSPACE_PATH,
+    basePath: HOST_WORKSPACE_PATH,
   }),
-  sandbox: new LocalSandbox({
-    workingDirectory: WORKSPACE_PATH,
+  sandbox: new DockerSandbox({
+    id: "agent-workspace-sandbox",
+    image: "node:22-slim",
+    workingDir: DOCKER_WORKSPACE_PATH,
+    volumes: {
+      [HOST_WORKSPACE_PATH]: DOCKER_WORKSPACE_PATH,
+    },
   }),
   tools: {
     [WORKSPACE_TOOLS.FILESYSTEM.WRITE_FILE]: {
@@ -56,6 +65,26 @@ const workspace = new Workspace({
   },
 });
 
+export const slackChannels = new AgentChannels({
+  adapters: {
+    slack: {
+      adapter: createSlackAdapter({ nativeStreaming: true }),
+      streaming: true,
+      toolDisplay: "grouped",
+      typingStatus: true,
+      formatError: () => "Something went wrong while processing your request.",
+    },
+  },
+  handlers: {
+    onSubscribedMessage: async (thread, message, defaultHandler, _ctx) => {
+      if (/^aside\b/i.test(message.text)) return;
+      return await defaultHandler(thread, message);
+    },
+  },
+});
+
+export const slackChannelTools = slackChannels.getTools();
+
 const agent = new Agent({
   id: "agent",
   name: "Agent",
@@ -64,7 +93,9 @@ const agent = new Agent({
   instructions: `You are a concise general-purpose assistant. Complete the user's task using available tools.
 
 Available tools:
+- add_reaction: Add an emoji reaction to a channel message.
 - ask_user: Ask the user a question.
+- remove_reaction: Remove an emoji reaction from a channel message.
 - start_schedule: Start a schedule.
 - stop_schedule: Stop a schedule.
 - web_fetch: Fetch a URL.
@@ -78,11 +109,12 @@ Guidelines:
 - Ask one concise question only when missing information materially changes the result; otherwise state a reasonable assumption.
 - Confirm before broadening scope. Respect approval safeguards and explain destructive actions.
 - Protect secrets and personal data.
+- Use emoji reactions for lightweight channel acknowledgements when no text is needed.
 - Create schedules only when requested and report their IDs.
 - After history compaction, resume unfinished work and use recall for missing details.
 - Match the user's tone and keep responses concise.
 
-For local file changes, summarize what changed and end with a plain-text URL using ${pathToFileURL(`${WORKSPACE_PATH}/`).href}; avoid Markdown links, localhost, /workspace, relative paths, and static-file servers.
+For local file changes, summarize what changed and end with a plain-text URL using ${pathToFileURL(`${HOST_WORKSPACE_PATH}/`).href}; avoid Markdown links, localhost, /workspace, relative paths, and static-file servers.
 `,
   model: AGENT_MODEL,
   defaultOptions: {
@@ -99,6 +131,7 @@ For local file changes, summarize what changed and end with a plain-text URL usi
   }),
   workspace,
   tools: {
+    ...slackChannelTools,
     ask_user: askUserTool,
     start_schedule: startScheduleTool,
     stop_schedule: stopScheduleTool,
@@ -125,23 +158,7 @@ For local file changes, summarize what changed and end with a plain-text URL usi
       categories: ["hate", "harassment", "violence"],
     }),
   ],
-  channels: {
-    adapters: {
-      slack: {
-        adapter: createSlackAdapter({ nativeStreaming: true }),
-        streaming: true,
-        toolDisplay: "grouped",
-        typingStatus: true,
-        formatError: () => "Something went wrong while processing your request.",
-      },
-    },
-    handlers: {
-      onSubscribedMessage: async (thread, message, defaultHandler, _ctx) => {
-        if (/^aside\b/i.test(message.text)) return;
-        return await defaultHandler(thread, message);
-      },
-    },
-  },
+  channels: slackChannels,
 });
 
 export const durableAgent = createDurableAgent({ agent });

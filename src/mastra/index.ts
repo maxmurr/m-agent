@@ -8,12 +8,12 @@ import {
   Observability,
   SensitiveDataFilter,
 } from "@mastra/observability";
-import { durableAgent } from "./agents/agent";
+import { durableAgent, slackChannels, slackChannelTools } from "./agents/agent";
 import { startScheduleTool, stopScheduleTool } from "./tools/schedule";
 
 export const mastra = new Mastra({
   agents: { durableAgent },
-  tools: { startScheduleTool, stopScheduleTool },
+  tools: { ...slackChannelTools, startScheduleTool, stopScheduleTool },
   storage: new MastraCompositeStore({
     id: "composite-storage",
     default: new LibSQLStore({
@@ -35,3 +35,20 @@ export const mastra = new Mastra({
     },
   }),
 });
+
+void slackChannels
+  .initialize(mastra)
+  .then(() => {
+    slackChannels.sdk?.onReaction((event) => {
+      mastra.getLogger().info("Slack reaction received", {
+        action: event.added ? "added" : "removed",
+        emoji: event.rawEmoji,
+        messageId: event.messageId,
+        threadId: event.threadId,
+        userId: event.user.userId,
+      });
+    });
+  })
+  .catch((error) => {
+    mastra.getLogger().error("Slack reaction handler registration failed", error);
+  });

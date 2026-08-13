@@ -2,7 +2,7 @@
   "name": "mastra-cht-with-data",
   "version": "1.0.0",
   "private": true,
-  "description": "A general-purpose Mastra agent with a local workspace, shell tools, memory, task tracking, web access, and recurring schedules.",
+  "description": "A general-purpose Mastra agent with a Docker-sandboxed workspace, shell tools, memory, task tracking, web access, and recurring schedules.",
   "keywords": [],
   "license": "Apache-2.0",
   "author": "",

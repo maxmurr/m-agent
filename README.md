@@ -2,12 +2,13 @@
 
 Welcome to your new [Mastra](https://mastra.ai) project! We're excited to see what you build.
 
-This starter provides you with a general-purpose Mastra agent that can research current information, manage multi-step tasks, work with local files, run approved shell commands, and create recurring schedules.
+This starter provides you with a general-purpose Mastra agent that can research current information, manage multi-step tasks, work with local files, run approved shell commands in Docker, and create recurring schedules.
 
 ## Features
 
-- A persistent LLM wiki in `src/mastra/public/workspace/` for files and command execution
+- A persistent LLM wiki in `src/mastra/public/workspace/`, bind-mounted into a Docker sandbox for command execution
 - Approval gates for file changes, deletions, and shell commands
+- Native Slack emoji reaction tools and reaction event handling
 - Conversation memory, generated thread titles, and task tracking
 - Automatic context compaction with task checkpoints, raw-history recall, and continuation hints
 - Built-in web search and direct web page fetching
@@ -23,11 +24,13 @@ Set your OpenAI API key in `.env`:
 OPENAI_API_KEY=sk-...
 ```
 
-Then run:
+Start Docker Engine, then run:
 
 ```shell
 pnpm run dev
 ```
+
+Mastra pulls `node:22-slim` on first sandbox startup.
 
 Open [http://localhost:4111](http://localhost:4111) in your browser to access [Mastra Studio](https://mastra.ai/docs/studio/overview).
 
@@ -69,8 +72,8 @@ https://YOUR-PUBLIC-HOST/api/agents/agent/channels/slack/webhook
 4. In Slack app settings, set the full webhook URL in both locations:
    - **Event Subscriptions → Request URL**
    - **Interactivity & Shortcuts → Request URL**
-5. Confirm bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `im:history`, `im:read`, `im:write`, and `users:read`.
-6. Confirm bot events: `app_mention`, `message.channels`, and `message.im`.
+5. Confirm bot scopes: `app_mentions:read`, `channels:history`, `channels:read`, `chat:write`, `groups:history`, `im:history`, `im:read`, `im:write`, `reactions:read`, `reactions:write`, and `users:read`.
+6. Confirm bot events: `app_mention`, `message.channels`, `message.groups`, `message.im`, `reaction_added`, and `reaction_removed`.
 7. Reinstall the Slack app after changing scopes, then set `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in `.env`.
 8. Verify credentials, scopes, signature rejection, and signed webhook challenge:
 
@@ -100,7 +103,7 @@ Open the workspace directory as an Obsidian vault to browse links and graph view
 
 ## Workspace safety
 
-The local filesystem tools stay inside `src/mastra/public/workspace/` during development. Shell commands start there, but `LocalSandbox` does not provide operating-system isolation by default. Files under `src/mastra/public/` are copied into builds and may be served as static assets; do not store sensitive sources there unless deployment access is controlled. Review command approvals carefully, and do not expose this template through an unauthenticated public server.
+The local filesystem tools stay inside `src/mastra/public/workspace/` during development. Shell commands run in a long-lived Docker container with only that workspace bind-mounted at `/workspace`. Docker isolation reduces host access but is not a complete security boundary. Files under `src/mastra/public/` are copied into builds and may be served as static assets; do not store sensitive sources there unless deployment access is controlled. Keep Docker Engine running, review command approvals carefully, and do not expose this template through an unauthenticated public server.
 
 ## Storage
 

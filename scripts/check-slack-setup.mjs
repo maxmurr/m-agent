@@ -5,9 +5,12 @@ const REQUIRED_SLACK_BOT_SCOPES = [
   "channels:history",
   "channels:read",
   "chat:write",
+  "groups:history",
   "im:history",
   "im:read",
   "im:write",
+  "reactions:read",
+  "reactions:write",
   "users:read",
 ];
 
